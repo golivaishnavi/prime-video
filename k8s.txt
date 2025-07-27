@@ -1,0 +1,64 @@
+eksctl create cluster --name mycluster --region us-east-1 --fargate  -----> to create a cluster
+
+ aws eks update-kubeconfig --name mycluster --region us-east-1
+
+eksctl create fargateprofile \
+    --cluster mycluster \
+    --region us-east-1 \
+    --name alb-sample-app \
+    --namespace primevideo      created my own namespace which is primevideo (means creating a fargate profile)
+
+
+primevideo_full.yaml it only creates pod,deployment,service-ingress but not ingress controller
+
+
+kubectl get pods -n primevideo ----> check for all the running pods
+
+kubectl get svc -n primevideo  ----> check the service
+
+currently external ip address is not defined, means anyone who has access to vpc can talk to pod using node's ip address and port number (external ip address comes through load balancer)
+
+ kubectl get ingress -n primevideo ----> ingress created but address is empty for now. address becomes visible once ingress controller is deployed
+
+Address-> is useful -> for oustsiders to access the application
+
+NEXT STEP->>> deploy ingress controller
+
+firstly we need iam oidc connector because alb controller needs access to application load balancer....in simple terms in case if a pod needs to talk to other aws services it needs IAM OIDC CONNECTOR
+
+eksctl utils associate-iam-oidc-provider --cluster mycluster --region us-east-1 --approve
+
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.11.0/docs/install/iam_policy.json        ---->  download IAM policy
+
+
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json    -----> create IAM policy
+
+
+eksctl create iamserviceaccount \
+  --cluster=<your-cluster-name> \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::<your-account-id>>:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve
+this command for creating IAM Role
+
+
+
+helm repo add eks https://aws.github.io/eks-charts  -> creation ALB controller
+helm repo update eks
+
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system \
+  --set clusterName=<your-cluster-name> \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=<your-region> \
+  --set vpcId=<your-vpc-id>
+
+
+kubectl get deployment -n kube-system aws-load-balancer-controller     ---> Verify that the deployments are running.
+
+aws-load-balancer-controller creates 2 replicas in 2 availability regions which checks ingress resources and creates alb resources in 2 availability zones
